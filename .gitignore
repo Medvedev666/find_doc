@@ -4,3 +4,4 @@ docFinder_loggers.log
 dist/
 build/
 main.spec
+main.c

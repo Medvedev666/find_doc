@@ -13,10 +13,9 @@ from PyPDF2 import PdfReader
 import pyexcel_xls
 import pyexcel
 
-import olefile
+from win32com import client as wc
 
 import threading
-import chardet
 
 from .config import logger
 
@@ -78,17 +77,6 @@ def find_docx(find, txt1, path):
         for paragraph in doc.paragraphs:
             
             paragraph = paragraph.text.lower().replace('\n', '').replace(' ', '')
-            # try:
-            #     # Преобразование текста для проверки корректности кодировки
-            #     logger.info(f'Begin')
-            #     result = chardet.detect(paragraph.text.encode('utf-8'))
-            #     logger.info(f'{result=}')
-            #     logger.info(f'{paragraph.text.encode('utf-8').decode('utf-8')=}')
-            #     # print(f'{cell.text.encode('utf-8').decode('utf-8')=}')
-            # except UnicodeDecodeError:
-            #     logger.error(f"File '{path}' contains non-UTF-8 characters.")
-            #     logger.error(f'{paragraph.text[:100]=}')
-            
 
             logger.info(f'{find=}')
             logger.info(f'{paragraph.text.lower()=}')
@@ -106,16 +94,6 @@ def find_docx(find, txt1, path):
                 for row in table.rows:
                     for cell in row.cells:
 
-                        try:
-                            result = chardet.detect(cell.text.encode('utf-8'))
-                            logger.info(f'{result=}')
-                            # Преобразование текста для проверки корректности кодировки
-                            logger.info(f'{cell.text.encode('utf-8').decode('utf-8')=}')
-                            # print(f'{cell.text.encode('utf-8').decode('utf-8')=}')
-                        except UnicodeDecodeError:
-                            logger.error(f"File '{path}' contains non-UTF-8 characters.")
-                            logger.error(f'{cell.text[:100]=}')
-
                         if find in cell.text.lower().replace('\n', '').replace(' ', ''):
                             not_found = 0
                             path, filename = os.path.split(path)
@@ -130,25 +108,30 @@ def find_docx(find, txt1, path):
 
 def find_doc(find, txt1, path):
     try:
-        # Открываем файл с помощью olefile
-        ole = olefile.OleFileIO(path)
+        logger.info(f'{txt1=}')
+        w = wc.Dispatch('Word.Application')
 
-        # Открываем поток 'WordDocument' и считываем его содержимое
-        content_bytes = ole.openstream('WordDocument').read()
+        doc=w.Documents.Open(os.path.abspath(path))
 
-        # Декодируем содержимое файла с определенной кодировкой
-        decoded_text = content_bytes.decode("utf-16", "ignore")
-
-        # Выводим декодированный текст
-        print(f'{decoded_text=}')
+        text = doc.Content.Text.lower().replace('\n', '').replace(' ', '').replace('\r', '')
+        logger.info(f'{text=}')
+        cell = text.find(find)
+        logger.info(f'{cell=}')
+        if find != -1:
+            logger.info('Нашли')
+            path, filename = os.path.split(path)
+            update_result_text(filename, path, txt1)
+            not_found = 0
+        
+        if not_found == 0:
+            return not_found
 
     except Exception as e:
-        print(f"Error reading or decoding the file: {e}")
+        logger.error(f"Error reading or decoding the doc file: {e}")
 
     finally:
         # Важно закрыть файл, когда работа с ним завершена
-        if 'ole' in locals():
-            ole.close()
+        w.Quit()
 
     
 def find_pdf(find, txt1, path):
@@ -158,15 +141,6 @@ def find_pdf(find, txt1, path):
         for page in reader.pages:
             clear_page = page.extract_text().replace('\n', '').replace(' ', '')
 
-            # try:
-            #     result = chardet.detect(clear_page.encode('utf-8'))
-            #     logger.info(f'{result=}')
-            #     # Преобразование текста для проверки корректности кодировки
-            #     logger.info(f'{clear_page.encode('utf-8').decode('utf-8')=}')
-            #     # print(f'{clear_page.encode('utf-8').decode('utf-8')=}')
-            # except UnicodeDecodeError:
-            #     logger.error(f"File '{path}' contains non-UTF-8 characters.")
-            #     logger.error(f'{clear_page[:100]=}')
 
             logger.info(f'{find=}')
             logger.info(f'{clear_page.lower()=}')
@@ -176,6 +150,9 @@ def find_pdf(find, txt1, path):
                 path, filename = os.path.split(path)
                 update_result_text(filename, path, txt1)
                 break
+        
+        if not_found == 0:
+            return not_found
     except Exception as e:
         logger.error(f'Error pdf: {e}')
     
@@ -183,7 +160,7 @@ def find_pdf(find, txt1, path):
 def findDocs_process(chose_dir, find, txt1, search_mode):
 
     find = find.replace('\n', '').replace(' ', '')
-    print(f'{find=}')
+    logger.info(f'{find=}')
 
     flag_xls = 0
     flag = 0
@@ -195,14 +172,20 @@ def findDocs_process(chose_dir, find, txt1, search_mode):
     logger.info(f'{paths=}\n\n{paths_pdf=}\n\n{paths_xls=}')
     # поиск по docx
     for path in paths:
-        find_docx(find, txt1, path)
+        result_function = find_docx(find, txt1, path)
+        if result_function == 0:
+            not_found = 0
     
     for path in paths_doc:
-        find_doc(find, txt1, path)
+        result_function = find_doc(find, txt1, path)
+        if result_function == 0:
+            not_found = 0
 
     # поиск по pdf
     for path in paths_pdf:
-        find_pdf(find, txt1, path)
+        result_function = find_pdf(find, txt1, path)
+        if result_function == 0:
+            not_found = 0
         
 
     # поиск по xls
@@ -218,7 +201,7 @@ def findDocs_process(chose_dir, find, txt1, search_mode):
     #                     logger.info(f'{result=}')
     #                     # Преобразование текста для проверки корректности кодировки
     #                     logger.info(f'{str(cell).encode('utf-8').decode('utf-8')=}')
-    #                     # print(f'{str(cell).encode('utf-8').decode('utf-8')=}')
+    #                     # logger.info(f'{str(cell).encode('utf-8').decode('utf-8')=}')
     #                 except UnicodeDecodeError:
     #                     logger.error(f"File '{path}' contains non-UTF-8 characters.")
     #                     logger.error(f'{str(cell)[:100]=}')
